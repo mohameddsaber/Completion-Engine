@@ -46,6 +46,7 @@ SECTION_ALIASES: dict[str, str] = {
     "bio": "summary",
     # skills
     "skills": "skills",
+    "soft skills": "skills",
     "technical skills": "skills",
     "core skills": "skills",
     "key skills": "skills",
@@ -63,6 +64,7 @@ SECTION_ALIASES: dict[str, str] = {
     "areas of expertise": "skills",
     # experience
     "experience": "experience",
+    "professional experience": "experience",
     "work experience": "experience",
     "professional experience": "experience",
     "employment history": "experience",
@@ -77,6 +79,7 @@ SECTION_ALIASES: dict[str, str] = {
     # education
     "education": "education",
     "educational background": "education",
+    "education & certifications": "education",
     "academic background": "education",
     "academic qualifications": "education",
     "qualifications": "education",
@@ -129,6 +132,7 @@ SECTION_ALIASES: dict[str, str] = {
     "additional information": "additional_information",
     "additional": "additional_information",
     "activities": "additional_information",
+    "notable impact & achievements": "additional_information",
     "activity": "additional_information",
     "extracurricular activities": "additional_information",
     "extracurricular activity": "additional_information",
@@ -263,7 +267,7 @@ SOFT_SKILL_KEYWORDS = {
     "initiative", "motivated", "proactive", "negotiation", "presentation",
     "conflict resolution", "decision making", "empathy", "mentoring", "coaching",
     "fast learner", "quick learner", "detail oriented", "result oriented",
-    "customer oriented", "self motivated", "team player",
+    "customer oriented", "self motivated", "team player","soft skills",
 }
 
 # Platform domain → candidate type

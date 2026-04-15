@@ -33,7 +33,7 @@ def load_raw_text_rows(limit: int = 10) -> list[str]:
 
 
 RAW_TEXT_ROWS = load_raw_text_rows(110)
-SIMPLE_CV = RAW_TEXT_ROWS[2]
+SIMPLE_CV = RAW_TEXT_ROWS[5]
 
 
 def pick_raw_text(predicate) -> str:
