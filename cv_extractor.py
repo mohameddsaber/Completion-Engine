@@ -780,6 +780,21 @@ def _is_activity_entry_start(line: str) -> bool:
     )
 
 
+def _is_publication_like_line(line: str) -> bool:
+    """Return True when a line looks like a publication or thesis entry."""
+    stripped = _strip_bullet(line)
+    if not stripped:
+        return False
+
+    lower = stripped.lower()
+    publication_markers = (
+        "publication", "publications", "thesis", "paper", "papers",
+        "article", "articles", "journal", "conference", "peer-reviewed",
+        "peer reviewed", "accepted", "published",
+    )
+    return any(marker in lower for marker in publication_markers)
+
+
 # ---------------------------------------------------------------------------
 # Email extraction
 # ---------------------------------------------------------------------------
@@ -1388,24 +1403,63 @@ def extract_awards(sections: list[Section]) -> list[Candidate]:
 def extract_publications(sections: list[Section]) -> list[Candidate]:
     """Extract publication candidates."""
     candidates: list[Candidate] = []
-    pub_sections = _section_text_for(sections, ["publications"])
+    pub_sections = _section_text_for(sections, ["publications", "education", "additional_information"])
 
     for sec in pub_sections:
-        # Publications are often multi-line; split on blank lines
-        entries = re.split(r"\n\s*\n", sec.text.strip())
-        for entry in entries:
-            entry = entry.strip()
-            if not entry or len(entry) < 8:
+        lines = [line.strip() for line in sec.text.split("\n") if line.strip() and not _is_separator_line(line)]
+        current: list[str] = []
+
+        for line in lines:
+            if _is_inline_labeled_field(line):
                 continue
-            candidates.append(Candidate(
-                candidate_type="publication",
-                value=entry,
-                normalized_value=entry,
-                source_text=entry,
-                section="publications",
-                confidence=0.88,
-                extractor="block_entry",
-            ))
+
+            if _is_publication_like_line(line):
+                if current:
+                    entry = "\n".join(current).strip()
+                    if len(entry) >= 8:
+                        candidates.append(Candidate(
+                            candidate_type="publication",
+                            value=entry,
+                            normalized_value=entry,
+                            source_text=entry,
+                            section="publications",
+                            confidence=0.88,
+                            extractor="block_entry",
+                        ))
+                current = [line]
+                continue
+
+            if current:
+                # Treat short continuation lines as part of the current publication entry.
+                if len(line) < 140 or _is_likely_bullet_line(line):
+                    current.append(_strip_bullet(line))
+                    continue
+
+                entry = "\n".join(current).strip()
+                if len(entry) >= 8:
+                    candidates.append(Candidate(
+                        candidate_type="publication",
+                        value=entry,
+                        normalized_value=entry,
+                        source_text=entry,
+                        section="publications",
+                        confidence=0.88,
+                        extractor="block_entry",
+                    ))
+                current = []
+
+        if current:
+            entry = "\n".join(current).strip()
+            if len(entry) >= 8:
+                candidates.append(Candidate(
+                    candidate_type="publication",
+                    value=entry,
+                    normalized_value=entry,
+                    source_text=entry,
+                    section="publications",
+                    confidence=0.88,
+                    extractor="block_entry",
+                ))
 
     return candidates
 
@@ -1641,7 +1695,11 @@ def build_experience_blocks(sections: list[Section]) -> list[Candidate]:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                if _is_separator_line(stripped) or _is_inline_labeled_field(stripped):
+                if (
+                    _is_separator_line(stripped)
+                    or _is_inline_labeled_field(stripped)
+                    or _is_publication_like_line(stripped)
+                ):
                     continue
 
                 # Handle pipe-delimited single-line entries:
@@ -1721,6 +1779,7 @@ def build_education_blocks(sections: list[Section]) -> list[Candidate]:
             if not block_lines:
                 continue
 
+            cleaned_block_lines: list[str] = []
             institution_candidates: list[str] = []
             degree_candidates: list[str] = []
             specialization_candidates: list[str] = []
@@ -1732,8 +1791,14 @@ def build_education_blocks(sections: list[Section]) -> list[Candidate]:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                if _is_separator_line(stripped) or _is_inline_labeled_field(stripped):
+                if (
+                    _is_separator_line(stripped)
+                    or _is_inline_labeled_field(stripped)
+                    or _is_publication_like_line(stripped)
+                ):
                     continue
+
+                cleaned_block_lines.append(stripped)
 
                 # GPA
                 if GPA_RE.search(stripped):
@@ -1775,14 +1840,18 @@ def build_education_blocks(sections: list[Section]) -> list[Candidate]:
                 else:
                     description_candidates.append(stripped)
 
+            if not cleaned_block_lines:
+                continue
+
             parts = degree_candidates + institution_candidates + graduation_date_candidates
             value = " | ".join(parts) if parts else block_lines[0]
+            cleaned_source_text = "\n".join(cleaned_block_lines)
 
             candidates.append(Candidate(
                 candidate_type="education_block",
                 value=value,
                 normalized_value=value,
-                source_text=block,
+                source_text=cleaned_source_text,
                 section="education",
                 confidence=0.87,
                 extractor="block_builder",
