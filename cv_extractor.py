@@ -760,6 +760,26 @@ def _is_training_entry_start(line: str) -> bool:
     )
 
 
+def _is_activity_entry_start(line: str) -> bool:
+    """Return True when a line looks like the start of an activity entry."""
+    stripped = line.strip()
+    if not stripped or _is_likely_bullet_line(stripped) or _is_inline_labeled_field(stripped):
+        return False
+
+    lower = stripped.lower()
+    if _contains_date_range_like(stripped):
+        return True
+
+    activity_markers = (
+        "camp", "club", "society", "chapter", "competition",
+        "workshop", "bootcamp", "training", "league", "team",
+    )
+    return bool(
+        len(stripped) <= 120
+        and any(marker in lower for marker in activity_markers)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Email extraction
 # ---------------------------------------------------------------------------
@@ -1151,6 +1171,104 @@ def extract_certifications(sections: list[Section]) -> list[Candidate]:
                 section="certifications",
                 confidence=0.90,
                 extractor="section_line",
+            ))
+
+    return candidates
+
+
+# ---------------------------------------------------------------------------
+# Activities extraction
+# ---------------------------------------------------------------------------
+
+def extract_activities(sections: list[Section]) -> list[Candidate]:
+    """Extract activity/extracurricular candidates from additional information."""
+    candidates: list[Candidate] = []
+    info_sections = _section_text_for(sections, ["additional_information"])
+
+    for sec in info_sections:
+        lines = [line for line in sec.text.split("\n") if line.strip() and not _is_separator_line(line)]
+        blocks: list[list[str]] = []
+        current_block: list[str] = []
+
+        for line in lines:
+            stripped = line.strip()
+            if _is_inline_labeled_field(stripped):
+                continue
+
+            starts_new = current_block and _is_activity_entry_start(stripped)
+            if starts_new:
+                blocks.append(current_block)
+                current_block = [stripped]
+            else:
+                current_block.append(stripped)
+
+        if current_block:
+            blocks.append(current_block)
+
+        for block in blocks:
+            block_lines = [line.strip() for line in block if line.strip()]
+            if not block_lines:
+                continue
+
+            title_candidates: list[str] = []
+            role_candidates: list[str] = []
+            location_candidates: list[str] = []
+            date_candidates: list[str] = []
+            description_candidates: list[str] = []
+
+            for idx, line in enumerate(block_lines):
+                stripped = _strip_bullet(line)
+                if not stripped:
+                    continue
+
+                if "|" in stripped:
+                    parts = [p.strip() for p in stripped.split("|") if p.strip()]
+                    for part in parts:
+                        if _contains_date_range_like(part):
+                            date_candidates.append(part)
+                        elif not title_candidates:
+                            title_candidates.append(part)
+                        elif any(token in part.lower() for token in ("alexandria", "cairo", "egypt", "remote", "online")):
+                            location_candidates.append(part)
+                        elif not role_candidates:
+                            role_candidates.append(part)
+                        else:
+                            description_candidates.append(part)
+                    continue
+
+                if _contains_date_range_like(stripped):
+                    date_candidates.append(stripped)
+                    continue
+
+                if idx == 0 and not title_candidates:
+                    title_candidates.append(stripped)
+                    continue
+
+                if any(token in stripped.lower() for token in ("alexandria", "cairo", "egypt", "remote", "online")):
+                    location_candidates.append(stripped)
+                elif len(stripped) <= 60 and not role_candidates:
+                    role_candidates.append(stripped)
+                else:
+                    description_candidates.append(stripped)
+
+            value_parts = title_candidates + date_candidates
+            value = " | ".join(value_parts) if value_parts else block_lines[0]
+
+            candidates.append(Candidate(
+                candidate_type="activity",
+                value=value,
+                normalized_value=value,
+                source_text="\n".join(block_lines),
+                section="additional_information",
+                confidence=0.84,
+                extractor="activity_block",
+                subfields={
+                    "title_candidates": title_candidates,
+                    "role_candidates": role_candidates,
+                    "location_candidates": location_candidates,
+                    "date_candidates": date_candidates,
+                    "description_candidates": description_candidates,
+                },
             ))
 
     return candidates
@@ -1862,6 +1980,7 @@ def extract_candidates(raw_text: str) -> dict:
     all_candidates.extend(extract_skills(sections))
     all_candidates.extend(extract_languages(sections))
     all_candidates.extend(extract_certifications(sections))
+    all_candidates.extend(extract_activities(sections))
     all_candidates.extend(extract_trainings(sections))
     all_candidates.extend(extract_awards(sections))
     all_candidates.extend(extract_publications(sections))

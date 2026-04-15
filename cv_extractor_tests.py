@@ -162,6 +162,10 @@ TEST_3_CV = pick_raw_text_by_candidates(
     )
 )
 
+TEST_4_CV = pick_raw_text(
+    lambda text: "ACM Algorithms Training Camp" in text and "ICT and CS Assistant Teacher" in text
+)
+
 def test_block_candidates():
     result = extract_candidates(TEST_3_CV)
     cands = result["candidates"]
@@ -183,6 +187,21 @@ def test_block_candidates():
 
 
 # ---------------------------------------------------------------------------
+# Test 4: Activity candidates
+# ---------------------------------------------------------------------------
+
+def test_activity_candidates():
+    result = extract_candidates(TEST_4_CV)
+    cands = result["candidates"]
+
+    assert_has_type(cands, "activity", min_count=2)
+    assert_value_present(cands, "activity", "ACM Algorithms Training Camp")
+    assert_value_present(cands, "activity", "ICT and CS Assistant Teacher")
+
+    print("[PASS] test_activity_candidates")
+
+
+# ---------------------------------------------------------------------------
 # Run all tests
 # ---------------------------------------------------------------------------
 
@@ -193,7 +212,12 @@ if __name__ == "__main__":
     print("=" * 60)
 
     failed = 0
-    for test_fn in [test_contact_info, test_skills_languages_certifications, test_block_candidates]:
+    for test_fn in [
+        test_contact_info,
+        test_skills_languages_certifications,
+        test_block_candidates,
+        test_activity_candidates,
+    ]:
         try:
             test_fn()
         except AssertionError as e:
