@@ -1452,67 +1452,79 @@ def _flush_award_entry(text: str, candidates: list[Candidate]) -> None:
 # ---------------------------------------------------------------------------
 
 def extract_publications(sections: list[Section]) -> list[Candidate]:
-    """Extract publication candidates."""
+    """
+    Extract publication candidates.
+    
+    Improves on simple line-splitting by:
+    1. Joining lines that look like continuations of the previous publication.
+    2. Splitting lines if multiple publications are in one line (less common, but possible).
+    """
     candidates: list[Candidate] = []
     pub_sections = _section_text_for(sections, ["publications", "education", "additional_information"])
 
     for sec in pub_sections:
-        lines = [line.strip() for line in sec.text.split("\n") if line.strip() and not _is_separator_line(line)]
-        current: list[str] = []
+        lines = sec.text.split("\n")
+        current_entry_lines: list[str] = []
 
         for line in lines:
-            if _is_inline_labeled_field(line):
+            stripped = line.strip()
+            if not stripped or _is_separator_line(stripped) or _is_inline_labeled_field(stripped):
                 continue
 
-            if _is_publication_like_line(line):
-                if current:
-                    entry = "\n".join(current).strip()
-                    if len(entry) >= 8:
-                        candidates.append(Candidate(
-                            candidate_type="publication",
-                            value=entry,
-                            normalized_value=entry,
-                            source_text=entry,
-                            section="publications",
-                            confidence=0.88,
-                            extractor="block_entry",
-                        ))
-                current = [line]
-                continue
+            # Decide if this line starts a new publication or continues the current one
+            is_bullet = _is_likely_bullet_line(line)
+            is_new = is_bullet
 
-            if current:
-                # Treat short continuation lines as part of the current publication entry.
-                if len(line) < 140 or _is_likely_bullet_line(line):
-                    current.append(_strip_bullet(line))
-                    continue
+            if not is_new and current_entry_lines:
+                # Heuristic for continuation:
+                prev = current_entry_lines[-1].strip()
+                last_char = prev[-1] if prev else ""
 
-                entry = "\n".join(current).strip()
-                if len(entry) >= 8:
-                    candidates.append(Candidate(
-                        candidate_type="publication",
-                        value=entry,
-                        normalized_value=entry,
-                        source_text=entry,
-                        section="publications",
-                        confidence=0.88,
-                        extractor="block_entry",
-                    ))
-                current = []
+                connectors = {"and", "or", "with", "for", "at", "in", "by", "of", "&", ","}
+                ends_with_connector = any(prev.lower().endswith(f" {c}") for c in connectors) or prev.endswith(",")
+                starts_with_lower = stripped[0].islower() if stripped else False
+                no_sentence_end = last_char not in {".", "!", "?"}
 
-        if current:
-            entry = "\n".join(current).strip()
-            if len(entry) >= 8:
-                candidates.append(Candidate(
-                    candidate_type="publication",
-                    value=entry,
-                    normalized_value=entry,
-                    source_text=entry,
-                    section="publications",
-                    confidence=0.88,
-                    extractor="block_entry",
-                ))
+                if starts_with_lower or ends_with_connector or (no_sentence_end and len(stripped) < 80):
+                    is_new = False
+                else:
+                    is_new = True
+
+            if is_new and current_entry_lines:
+                _flush_publication_entry("\n".join(current_entry_lines), sec.name, candidates)
+                current_entry_lines = []
+
+            line_to_add = _strip_bullet(line) if is_bullet else stripped
+            current_entry_lines.append(line_to_add)
+
+        if current_entry_lines:
+            _flush_publication_entry("\n".join(current_entry_lines), sec.name, candidates)
 
     return candidates
+
+
+def _flush_publication_entry(text: str, section_name: str, candidates: list[Candidate]) -> None:
+    """Process and add a joined publication entry if valid."""
+    val = text.replace("\n", " ").strip()
+    val = re.sub(r"\s+", " ", val)
+    
+    if len(val) < 8:
+        return
+
+    # If it's not in the publications section, it must have publication markers to be considered
+    if section_name != "publications":
+        if not _is_publication_like_line(val):
+            return
+
+    candidates.append(Candidate(
+        candidate_type="publication",
+        value=val,
+        normalized_value=val,
+        source_text=val,
+        section="publications",
+        confidence=0.88,
+        extractor="publication_heuristic",
+    ))
 
 
 # ---------------------------------------------------------------------------
