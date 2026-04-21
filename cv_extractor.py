@@ -63,6 +63,7 @@ SECTION_ALIASES: dict[str, str] = {
     "skill set": "skills",
     "areas of expertise": "skills",
     # experience
+    "INTERNSHIP EXPERIENCE": "experience",
     "experience": "experience",
     "professional experience": "experience",
     "work experience": "experience",
@@ -1101,15 +1102,7 @@ def extract_skills(sections: list[Section]) -> list[Candidate]:
                 else:
                     ctype = "technical_skill"
                     conf = 0.88
-                candidates.append(Candidate(
-                    candidate_type=ctype,
-                    value=item,
-                    normalized_value=normalized,
-                    source_text=line,
-                    section="skills",
-                    confidence=conf,
-                    extractor="section_splitter",
-                ))
+
 
     return candidates
 
@@ -1377,27 +1370,81 @@ def extract_trainings(sections: list[Section]) -> list[Candidate]:
 # ---------------------------------------------------------------------------
 
 def extract_awards(sections: list[Section]) -> list[Candidate]:
-    """Extract award and achievement candidates."""
+    """
+    Extract award and achievement candidates.
+
+    Improves on simple line-splitting by:
+    1. Joining lines that look like continuations of the previous award.
+    2. Splitting lines that contain multiple awards separated by delimiters like ; or |.
+    """
     candidates: list[Candidate] = []
     award_sections = _section_text_for(sections, ["awards"])
 
     for sec in award_sections:
         lines = sec.text.split("\n")
+        current_entry_lines: list[str] = []
+
         for line in lines:
-            stripped = _strip_bullet(line)
-            if not stripped or len(stripped) < 4:
+            stripped = line.strip()
+            if not stripped:
                 continue
-            candidates.append(Candidate(
-                candidate_type="award",
-                value=stripped,
-                normalized_value=stripped,
-                source_text=stripped,
-                section="awards",
-                confidence=0.88,
-                extractor="section_line",
-            ))
+
+            # Decide if this line starts a new award or continues the current one
+            is_bullet = _is_likely_bullet_line(line)
+            is_new = is_bullet
+
+            if not is_new and current_entry_lines:
+                # Heuristic for continuation:
+                # - Starts with lowercase
+                # - Previous line didn't end with sentence-ending punctuation (., !, ?)
+                # - Previous line ended with a connector (and, or, with, for, at, in)
+                prev = current_entry_lines[-1].strip()
+                last_char = prev[-1] if prev else ""
+
+                connectors = {"and", "or", "with", "for", "at", "in", "by", "of", "&"}
+                ends_with_connector = any(prev.lower().endswith(f" {c}") for c in connectors)
+                starts_with_lower = stripped[0].islower()
+                no_sentence_end = last_char not in {".", "!", "?"}
+
+                if starts_with_lower or ends_with_connector or (no_sentence_end and len(stripped) < 40):
+                    is_new = False
+                else:
+                    is_new = True
+
+            if is_new and current_entry_lines:
+                # Flush previous
+                _flush_award_entry("\n".join(current_entry_lines), candidates)
+                current_entry_lines = []
+
+            # Clean up the line: strip bullet if it's a new bulleted item
+            line_to_add = _strip_bullet(line) if is_bullet else stripped
+            current_entry_lines.append(line_to_add)
+
+        if current_entry_lines:
+            _flush_award_entry("\n".join(current_entry_lines), candidates)
 
     return candidates
+
+
+def _flush_award_entry(text: str, candidates: list[Candidate]) -> None:
+    """Split a detected award block into individual items if delimiters exist."""
+    # Split by strong delimiters: ; | or triple space
+    # We avoid single comma because award titles often contain them
+    parts = re.split(r"[;|]|\s{3,}", text)
+    for p in parts:
+        val = p.replace("\n", " ").strip()
+        val = re.sub(r"\s+", " ", val)  # collapse spaces
+        if len(val) >= 4:
+            candidates.append(Candidate(
+                candidate_type="award",
+                value=val,
+                normalized_value=val,
+                source_text=val,
+                section="awards",
+                confidence=0.88,
+                extractor="section_item",
+            ))
+
 
 
 # ---------------------------------------------------------------------------
