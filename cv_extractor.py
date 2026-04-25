@@ -1636,26 +1636,32 @@ def _split_into_blocks(section_text: str, mode: str = "generic") -> list[str]:
         return ["\n".join(block).strip() for block in blocks if any(line.strip() for line in block)]
 
     if mode == "projects":
-        lines = [line for line in section_text.strip().split("\n") if line.strip() and not _is_separator_line(line)]
-        blocks: list[list[str]] = []
-        current_block: list[str] = []
+        raw_blocks = re.split(r"\n\s*\n", section_text.strip())
+        final_blocks: list[list[str]] = []
 
-        for line in lines:
-            stripped = line.strip()
-            if _is_inline_labeled_field(stripped):
+        for raw_block in raw_blocks:
+            lines = [line for line in raw_block.strip().split("\n") if line.strip() and not _is_separator_line(line)]
+            if not lines:
                 continue
 
-            starts_new = current_block and _is_project_entry_start(stripped)
+            current_block: list[str] = []
+            for line in lines:
+                stripped = line.strip()
+                if _is_inline_labeled_field(stripped):
+                    continue
 
-            if starts_new:
-                blocks.append(current_block)
-                current_block = [stripped]
-            else:
-                current_block.append(stripped)
+                starts_new = current_block and _is_project_entry_start(stripped)
 
-        if current_block:
-            blocks.append(current_block)
-        return ["\n".join(block).strip() for block in blocks if any(line.strip() for line in block)]
+                if starts_new:
+                    final_blocks.append(current_block)
+                    current_block = [stripped]
+                else:
+                    current_block.append(stripped)
+
+            if current_block:
+                final_blocks.append(current_block)
+
+        return ["\n".join(block).strip() for block in final_blocks if any(line.strip() for line in block)]
 
     if mode == "training":
         lines = [line for line in section_text.strip().split("\n") if line.strip() and not _is_separator_line(line)]
