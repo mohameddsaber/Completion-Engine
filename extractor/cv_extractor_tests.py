@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from cv_extractor import extract_candidates
+from extractor.cv_extractor import extract_candidates
 
 DATA_PATH = Path(__file__).with_name("cv_parser_output.jsonl")
 OUTPUT_PATH = Path(__file__).with_name("cv_extracted_results.jsonl")
